@@ -1,0 +1,505 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String                 @id @default(cuid())
+  email                String                 @unique
+  password             String?
+  name                 String
+  firstName            String?
+  lastName             String?
+  orcid                String?                @unique
+  bio                  String?
+  researchInterests    String? // JSON string for array compatibility
+  expertise            String? // JSON string for array compatibility
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  phone                String?
+  website              String?
+  profileImage         String?
+  roles                String? // JSON string for enum array compatibility
+  auditLogs            AuditLog[]
+  createdCalls         CallForProposal[]      @relation("CallCreator")
+  managedPrograms      FundingProgram[]       @relation("ProgramOfficer")
+  notifications        Notification[]
+  coPrincipalProposals ProposalCollaborator[]
+  proposalComments     ProposalComment[]
+  principalProposals   Proposal[]             @relation("PrincipalInvestigator")
+  reviewAssignments    ReviewAssignment[]
+  reviews              Review[]
+  institutions         UserInstitution[]
+  budgetConfigurations BudgetConfiguration[]  @relation("BudgetConfigCreator")
+
+  @@map("users")
+}
+
+model Institution {
+  id        String            @id @default(cuid())
+  name      String
+  type      String
+  country   String
+  website   String?
+  address   String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  proposals Proposal[]
+  users     UserInstitution[]
+
+  @@map("institutions")
+}
+
+model UserInstitution {
+  id            String      @id @default(cuid())
+  userId        String
+  institutionId String
+  department    String?
+  position      String?
+  isPrimary     Boolean     @default(false)
+  startDate     DateTime?
+  endDate       DateTime?
+  createdAt     DateTime    @default(now())
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, institutionId])
+  @@map("user_institutions")
+}
+
+model Agency {
+  id              String           @id @default(cuid())
+  name            String
+  country         String
+  description     String?
+  website         String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  fundingPrograms FundingProgram[]
+
+  @@map("agencies")
+}
+
+model FundingProgram {
+  id               String            @id @default(cuid())
+  name             String
+  description      String
+  objectives       String? // JSON string for array compatibility
+  eligibilityRules String? // JSON string for array compatibility
+  minAmount        Float?
+  maxAmount        Float?
+  currency         String            @default("INR")
+  maxDuration      Int?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  programOfficerId String
+  agencyId         String
+  calls            CallForProposal[]
+  programOfficer   User              @relation("ProgramOfficer", fields: [programOfficerId], references: [id])
+  agency           Agency            @relation(fields: [agencyId], references: [id])
+  reviewCriteria   ReviewCriteria[]
+
+  @@map("funding_programs")
+}
+
+model CallForProposal {
+  id                   String             @id @default(cuid())
+  title                String
+  description          String
+  status               CallStatus         @default(DRAFT)
+  openDate             DateTime?
+  closeDate            DateTime?
+  intentDeadline       DateTime?
+  fullProposalDeadline DateTime?
+  reviewDeadline       DateTime?
+  maxDuration          Int?               // Maximum project duration in months
+  expectedAwards       Int?
+  totalBudget          Float?
+  currency             String             @default("INR")
+  reviewVisibility     ReviewVisibility   @default(PRIVATE)
+  allowResubmissions   Boolean            @default(false)
+  isPublic             Boolean            @default(true)
+  resultsPublic        Boolean            @default(false) // Controls if proposals and reviews are publicly visible
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  fundingProgramId     String
+  createdById          String
+  createdBy            User               @relation("CallCreator", fields: [createdById], references: [id])
+  fundingProgram       FundingProgram     @relation(fields: [fundingProgramId], references: [id])
+  proposals            Proposal[]
+  requiredDocuments    RequiredDocument[]
+  documentRequirements  DocumentRequirement[]
+
+  @@map("calls_for_proposals")
+}
+
+model RequiredDocument {
+  id           String             @id @default(cuid())
+  name         String
+  description  String?
+  isRequired   Boolean            @default(true)
+  maxFileSize  Int?
+  allowedTypes String? // JSON string for array compatibility
+  createdAt    DateTime           @default(now())
+  callId       String
+  documents    ProposalDocument[]
+  call         CallForProposal    @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@map("required_documents")
+}
+
+model DocumentRequirement {
+  id               String          @id @default(cuid())
+  callId           String
+  documentType     String          // e.g., "CV", "Support Letter", "Budget Justification"
+  required         Boolean         @default(true)
+  maxSize          Int?            // Maximum file size in MB
+  allowedFormats   String?         // Comma-separated list of allowed file formats
+  description      String?         // Description/instructions for this document
+  displayOrder     Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  call             CallForProposal @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@map("document_requirements")
+}
+
+model Proposal {
+  id                      String                 @id @default(cuid())
+  title                   String
+  abstract                String
+  description             String
+  methodology             String?
+  expectedOutcomes        String?
+  timeline                String?
+  ethicsStatement         String?
+  duration                Int?                   // Project duration in months
+  status                  ProposalStatus         @default(DRAFT)
+  submittedAt             DateTime?
+  totalBudget             Float?
+  currency                String                 @default("INR")
+  version                 Int                    @default(1)
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  principalInvestigatorId String
+  institutionId           String
+  callId                  String
+  budgetItems             BudgetItem[]
+  collaborators           ProposalCollaborator[]
+  comments                ProposalComment[]
+  documents               ProposalDocument[]
+  versions                ProposalVersion[]
+  call                    CallForProposal        @relation(fields: [callId], references: [id])
+  institution             Institution            @relation(fields: [institutionId], references: [id])
+  principalInvestigator   User                   @relation("PrincipalInvestigator", fields: [principalInvestigatorId], references: [id])
+  reviewAssignments       ReviewAssignment[]
+  reviews                 Review[]
+
+  @@map("proposals")
+}
+
+model ProposalCollaborator {
+  id         String    @id @default(cuid())
+  role       String
+  sections   String? // JSON string for array compatibility
+  canEdit    Boolean   @default(false)
+  canView    Boolean   @default(true)
+  invitedAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  proposalId String
+  userId     String
+  proposal   Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, userId])
+  @@map("proposal_collaborators")
+}
+
+model BudgetItem {
+  id               String     @id @default(cuid())
+  category         BudgetCategory
+  subcategory      String?
+  description      String
+  justification    String?
+  year             Int
+  month            Int?       // For recurring items
+  amount           Float
+  baseAmount       Float?     // For salary calculations
+  hraAmount        Float?     // HRA amount for salary items
+  totalAmount      Float?     // Total including HRA and other allowances
+  currency         String     @default("INR")
+  quantity         Int        @default(1)
+  isRecurring      Boolean    @default(false)
+  budgetHeadId     String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  proposalId       String
+  proposal         Proposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  budgetHead       BudgetHead? @relation(fields: [budgetHeadId], references: [id])
+
+  @@map("budget_items")
+}
+
+model ProposalDocument {
+  id            String            @id @default(cuid())
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int
+  uploadPath    String
+  uploadedAt    DateTime          @default(now())
+  proposalId    String
+  requiredDocId String?
+  proposal      Proposal          @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  requiredDoc   RequiredDocument? @relation(fields: [requiredDocId], references: [id])
+
+  @@map("proposal_documents")
+}
+
+model ProposalVersion {
+  id          String   @id @default(cuid())
+  version     Int
+  title       String
+  abstract    String
+  description String
+  changes     String?
+  createdAt   DateTime @default(now())
+  proposalId  String
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, version])
+  @@map("proposal_versions")
+}
+
+model ReviewCriteria {
+  id          String         @id @default(cuid())
+  name        String
+  description String
+  weight      Float          @default(1.0)
+  maxScore    Int            @default(10)
+  isRequired  Boolean        @default(true)
+  programId   String
+  program     FundingProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  scores      ReviewScore[]
+
+  @@map("review_criteria")
+}
+
+model ReviewAssignment {
+  id          String       @id @default(cuid())
+  assignedAt  DateTime     @default(now())
+  dueDate     DateTime?
+  status      ReviewStatus @default(PENDING)
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  isAreaChair Boolean      @default(false)
+  proposalId  String
+  reviewerId  String
+  proposal    Proposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  reviewer    User         @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  review      Review?
+
+  @@unique([proposalId, reviewerId])
+  @@map("review_assignments")
+}
+
+model Review {
+  id                  String           @id @default(cuid())
+  overallScore        Float?
+  summary             String?
+  strengths           String?
+  weaknesses          String?
+  commentsToAuthors   String?
+  commentsToCommittee String?
+  recommendation      String?
+  budgetComments      String?
+  isConfidential      Boolean          @default(true)
+  isComplete          Boolean          @default(false)
+  submittedAt         DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  proposalId          String
+  reviewerId          String
+  assignmentId        String           @unique
+  scores              ReviewScore[]
+  assignment          ReviewAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  proposal            Proposal         @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  reviewer            User             @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, reviewerId])
+  @@map("reviews")
+}
+
+model ReviewScore {
+  id         String         @id @default(cuid())
+  score      Float
+  comments   String?
+  createdAt  DateTime       @default(now())
+  reviewId   String
+  criteriaId String
+  criteria   ReviewCriteria @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
+  review     Review         @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, criteriaId])
+  @@map("review_scores")
+}
+
+model ProposalComment {
+  id         String   @id @default(cuid())
+  content    String
+  section    String?
+  isInternal Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  proposalId String
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@map("proposal_comments")
+}
+
+model Notification {
+  id      String    @id @default(cuid())
+  title   String
+  message String
+  type    String
+  isRead  Boolean   @default(false)
+  sentAt  DateTime  @default(now())
+  readAt  DateTime?
+  userId  String
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model BudgetConfiguration {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("BudgetConfigCreator", fields: [createdById], references: [id])
+  heads       BudgetHead[]
+
+  @@map("budget_configurations")
+}
+
+model BudgetHead {
+  id                     String              @id @default(cuid())
+  name                   String
+  code                   String              @unique
+  type                   BudgetHeadType
+  isRecurring            Boolean             @default(true)
+  description            String?
+  isActive               Boolean             @default(true)
+  sortOrder              Int                 @default(0)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  budgetConfigurationId  String?
+  budgetConfiguration    BudgetConfiguration? @relation(fields: [budgetConfigurationId], references: [id])
+  salaryStructures       SalaryStructure[]
+  budgetItems            BudgetItem[]
+
+  @@map("budget_heads")
+}
+
+model SalaryStructure {
+  id           String     @id @default(cuid())
+  position     String
+  baseSalary   Float
+  hraPercentage Float     @default(0.1) // Default 10% HRA
+  currency     String     @default("INR")
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  budgetHeadId String
+  budgetHead   BudgetHead @relation(fields: [budgetHeadId], references: [id], onDelete: Cascade)
+
+  @@map("salary_structures")
+}
+
+enum UserRole {
+  PRINCIPAL_INVESTIGATOR
+  CO_PRINCIPAL_INVESTIGATOR
+  PROGRAM_OFFICER
+  CALL_COORDINATOR
+  REVIEWER
+  AREA_CHAIR
+  SYSTEM_ADMIN
+  INSTITUTIONAL_ADMIN
+}
+
+enum ProposalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum ReviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum CallStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum ReviewVisibility {
+  PRIVATE
+  PRIVATE_TO_AUTHORS
+  PUBLIC_POST_DECISION
+  FULLY_PUBLIC
+  SELECTIVE_DISCLOSURE
+}
+
+enum BudgetCategory {
+  PERSONNEL
+  EQUIPMENT
+  SUPPLIES
+  TRAVEL
+  INDIRECT_COSTS
+  SUBCONTRACTS
+  OTHER
+}
+
+enum BudgetHeadType {
+  MANPOWER
+  CONSUMABLES
+  CONTINGENCY
+  OVERHEAD
+  EQUIPMENT
+  TRAVEL
+  OTHER
+}
